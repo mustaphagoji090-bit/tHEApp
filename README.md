@@ -41,26 +41,38 @@ The two things that make the output usable rather than a slideshow of strangers:
 
 ---
 
-## Setup
+## Quickstart
 
-You need Python 3.10+. ffmpeg is used for rendering — if you do not have it installed, the
-app falls back to the copy bundled with the `imageio-ffmpeg` package automatically, so there
-is usually nothing to do.
+This runs on your own machine — there is no hosted site, so your API keys and your scripts
+never leave your computer. You need Python 3.10+; ffmpeg is bundled, so there is nothing else
+to install.
+
+**macOS / Linux**
 
 ```bash
-git clone <this repo>
+git clone -b claude/ai-stories-image-gen-rd8a1p https://github.com/mustaphagoji090-bit/tHEApp
 cd tHEApp
-./run.sh          # creates a virtualenv, installs deps, writes .env
+./run.sh
 ```
 
-The first run stops and asks you to fill in `.env`:
+**Windows** — same first two lines, then `run.bat` instead of `./run.sh`.
+
+The first run builds a virtualenv, then stops and tells you to fill in `.env`. Open that file
+and paste in one line:
 
 ```ini
-OPENAI_API_KEY=sk-...          # transcription + image prompts — one key runs everything
-FAL_KEY=...                    # optional: cheaper/faster images than OpenAI
+OPENAI_API_KEY=sk-...
 ```
 
-Then run `./run.sh` again and open <http://127.0.0.1:8000>.
+That single key covers everything — transcription, image prompts and images. Run `./run.sh`
+(or `run.bat`) again and open <http://127.0.0.1:8000>.
+
+> **Test on a short clip first.** Point it at a 1–2 minute voiceover before you feed it a
+> 40-minute one. You see the whole pipeline end to end for roughly 20 cents, and you can judge
+> the look before committing to 400 images.
+
+Later, if you want cheaper and faster images than OpenAI's, add `FAL_KEY=...` to `.env` and
+pick **fal** in the image-provider dropdown.
 
 ### Who does what
 

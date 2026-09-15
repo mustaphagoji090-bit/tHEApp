@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Story Image Generator</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1>AI Story Image Generator</h1>
+      <div class="sub">Voiceover in, timed images and a cut video out.</div>
+    </div>
+    <div class="pills" id="pills"></div>
+  </header>
+
+  <!-- ============ NEW JOB ============ -->
+  <section id="view-new">
+    <div class="panel">
+      <h2>New video</h2>
+      <p class="hint">Drop in the voiceover. The script is optional but makes the images sharper &mdash; names and spellings come out right.</p>
+
+      <div class="grid two">
+        <div>
+          <label for="title">Title</label>
+          <input type="text" id="title" placeholder="The Night Shift at St. Brendan's">
+        </div>
+        <div>
+          <label for="notes">Extra art direction (optional)</label>
+          <input type="text" id="notes" placeholder="1970s rural Ireland, rain, no modern tech">
+        </div>
+      </div>
+
+      <div class="grid two" style="margin-top:14px">
+        <div>
+          <label>Voiceover (required)</label>
+          <div class="drop" id="drop-vo">
+            <strong>Drop your voiceover here</strong>
+            mp3, wav, m4a &mdash; 30&ndash;40 min is fine
+          </div>
+          <input type="file" id="file-vo" accept="audio/*" class="hidden">
+        </div>
+        <div>
+          <label>Background music (optional)</label>
+          <div class="drop" id="drop-music">
+            <strong>Drop a music bed</strong>
+            Loops automatically, ducked under the voice
+          </div>
+          <input type="file" id="file-music" accept="audio/*" class="hidden">
+        </div>
+      </div>
+
+      <div style="margin-top:14px">
+        <label for="script">Script (optional &mdash; paste it, or drop a .txt below)</label>
+        <textarea id="script" placeholder="Paste your script here..."></textarea>
+        <div class="drop" id="drop-script" style="margin-top:8px;padding:12px">
+          <strong>or drop a .txt / .srt script file</strong>
+        </div>
+        <input type="file" id="file-script" accept=".txt,.srt,.md,text/*" class="hidden">
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Settings</h2>
+      <p class="hint" id="estimate">&nbsp;</p>
+      <div class="grid three">
+        <div>
+          <label for="ipm">Images per minute</label>
+          <input type="number" id="ipm" value="10" min="1" max="60" step="1">
+        </div>
+        <div>
+          <label for="aspect">Aspect ratio</label>
+          <select id="aspect"></select>
+        </div>
+        <div>
+          <label for="provider">Image provider</label>
+          <select id="provider"></select>
+        </div>
+        <div>
+          <label for="style">Visual style</label>
+          <select id="style"></select>
+        </div>
+        <div>
+          <label for="transition">Transition</label>
+          <select id="transition">
+            <option value="crossfade">Crossfade</option>
+            <option value="cut">Hard cut (much faster)</option>
+          </select>
+        </div>
+        <div>
+          <label for="fade">Crossfade length (s)</label>
+          <input type="number" id="fade" value="0.5" min="0.1" max="3" step="0.1">
+        </div>
+      </div>
+      <div class="row" style="margin-top:16px">
+        <label class="checkline"><input type="checkbox" id="autorender" checked> Render the video automatically when images finish</label>
+        <div class="spacer"></div>
+        <button id="btn-start">Start</button>
+      </div>
+      <div id="new-error" class="err hidden" style="margin-top:14px"></div>
+    </div>
+
+    <div class="panel" id="recent-panel">
+      <h2>Recent</h2>
+      <div class="joblist" id="joblist"></div>
+    </div>
+  </section>
+
+  <!-- ============ JOB ============ -->
+  <section id="view-job" class="hidden">
+    <div class="row" style="margin-bottom:16px">
+      <button class="ghost small" id="btn-back">&larr; All videos</button>
+      <div class="spacer"></div>
+      <button class="ghost small" id="btn-cancel">Cancel</button>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="margin-bottom:12px">
+        <h2 id="job-title" style="margin:0"></h2>
+        <span class="tag" id="job-tag"></span>
+      </div>
+      <div class="stages" id="stages"></div>
+      <div class="bar" id="bar"><i></i></div>
+      <div class="hint" id="job-msg" style="margin:8px 0 0"></div>
+      <div class="stats" id="stats"></div>
+      <div id="job-error" class="err hidden" style="margin-top:14px"></div>
+    </div>
+
+    <div class="panel hidden" id="video-panel">
+      <h2>Finished video</h2>
+      <p class="hint" id="video-hint"></p>
+      <video id="player" controls preload="metadata"></video>
+      <div class="row" style="margin-top:14px">
+        <button id="btn-download">Download MP4</button>
+        <button class="ghost" id="btn-zip">Images + timing sheet (.zip)</button>
+        <button class="ghost" id="btn-csv">Timeline CSV</button>
+        <div class="spacer"></div>
+        <button class="ghost" id="btn-rerender">Re-render</button>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="review-panel">
+      <h2>Images ready</h2>
+      <p class="hint">Fix anything you do not like, then render.</p>
+      <div class="row">
+        <button id="btn-render">Render video</button>
+        <button class="ghost" id="btn-zip2">Download images + timing sheet</button>
+      </div>
+    </div>
+
+    <div class="panel" id="gallery-panel">
+      <div class="row" style="margin-bottom:14px">
+        <h2 style="margin:0">Shots</h2>
+        <span class="hint" id="gallery-count" style="margin:0"></span>
+        <div class="spacer"></div>
+        <button class="ghost small hidden" id="btn-retry-failed">Retry failed</button>
+      </div>
+      <div class="gallery" id="gallery"></div>
+    </div>
+  </section>
+
+  <div class="modal" id="modal">
+    <div class="box">
+      <img id="m-img" alt="">
+      <div class="meta" id="m-meta"></div>
+      <div class="narration" id="m-narration"></div>
+      <label for="m-prompt">Image prompt &mdash; edit and regenerate just this shot</label>
+      <textarea id="m-prompt"></textarea>
+      <div class="row" style="margin-top:12px">
+        <button id="m-regen">Regenerate</button>
+        <button class="ghost" id="m-close">Close</button>
+        <span class="hint" id="m-status" style="margin:0"></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -12,7 +12,7 @@
   <header class="top">
     <div>
       <h1>AI Story Image Generator</h1>
-      <div class="sub">Voiceover in, timed images and a cut video out.</div>
+      <div class="sub">Your script + voiceover in, timed images and a cut video out.</div>
     </div>
     <div class="pills" id="pills"></div>
   </header>
@@ -21,7 +21,7 @@
   <section id="view-new">
     <div class="panel">
       <h2>New video</h2>
-      <p class="hint">Drop in the voiceover. The script is optional but makes the images sharper &mdash; names and spellings come out right.</p>
+      <p class="hint">Upload your script and your voiceover. Your script is the source of truth for the wording &mdash; the audio is only used to work out <em>when</em> each line is spoken.</p>
 
       <div class="grid two">
         <div>
@@ -54,12 +54,14 @@
       </div>
 
       <div style="margin-top:14px">
-        <label for="script">Script (optional &mdash; paste it, or drop a .txt below)</label>
-        <textarea id="script" placeholder="Paste your script here..."></textarea>
+        <label for="script">Script (required)</label>
+        <textarea id="script" placeholder="Paste your script here, or drop a file below..."></textarea>
         <div class="drop" id="drop-script" style="margin-top:8px;padding:12px">
-          <strong>or drop a .txt / .srt script file</strong>
+          <strong>or drop a .txt / .srt / .vtt script file</strong>
+          An .srt or .vtt already has timings &mdash; transcription is skipped entirely
         </div>
-        <input type="file" id="file-script" accept=".txt,.srt,.md,text/*" class="hidden">
+        <input type="file" id="file-script" accept=".txt,.srt,.vtt,.md,text/*" class="hidden">
+        <div class="hint" id="script-stat" style="margin:8px 0 0"></div>
       </div>
     </div>
 
@@ -78,6 +80,10 @@
         <div>
           <label for="provider">Image provider</label>
           <select id="provider"></select>
+        </div>
+        <div>
+          <label for="writer">Prompt writer</label>
+          <select id="writer"></select>
         </div>
         <div>
           <label for="style">Visual style</label>

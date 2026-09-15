@@ -1,6 +1,6 @@
 # AI Story Image Generator
 
-Upload a voiceover (and your script), get back a finished video with an image every few
+Upload your script and your voiceover, get back a finished video with an image every few
 seconds, cut to the narration.
 
 Built for long-form AI story videos: a 40-minute voiceover at 10 images per minute becomes
@@ -11,24 +11,30 @@ Built for long-form AI story videos: a 40-minute voiceover at 10 images per minu
 ## What it does
 
 ```
-voiceover.mp3  +  script/title
+your script.txt  +  voiceover.mp3
         │
-        ├─ 1. Transcribe the voiceover (Whisper, word-level timestamps)
-        ├─ 2. Cut the timeline into beats — 10 per minute, snapped to sentence ends
-        ├─ 3. Write a style bible + locked character descriptions (Claude)
-        ├─ 4. Write one image prompt per beat, all obeying that style bible
-        ├─ 5. Generate every image in parallel (fal.ai / Replicate / OpenAI)
-        └─ 6. Render: Ken Burns motion, crossfades, voiceover, optional music bed
+        ├─ 1. Transcribe the voiceover for word-level timings (skipped for .srt/.vtt)
+        ├─ 2. Match YOUR script onto those timings — your wording wins, always
+        ├─ 3. Cut the timeline into beats — 10 per minute, snapped to sentence ends
+        ├─ 4. Write a style bible + locked character descriptions (OpenAI or Claude)
+        ├─ 5. Write one image prompt per beat, all obeying that style bible
+        ├─ 6. Generate every image in parallel (fal.ai / Replicate / OpenAI)
+        └─ 7. Render: Ken Burns motion, crossfades, voiceover, optional music bed
         │
     final.mp4  +  numbered stills  +  timeline.csv
 ```
 
+**Nothing here writes your script.** You supply it. The text model writes the ~400 *image
+prompts* — the text handed to the image model for each beat — which is a different job and
+not something anyone hand-writes 400 times.
+
 The two things that make the output usable rather than a slideshow of strangers:
 
-- **Timing comes from the audio, not from guesswork.** Whisper gives word-level timestamps,
-  so every image has an exact in/out point and cuts land on sentence boundaries instead of
-  mid-clause. Beat cuts are anchored to a fixed grid, so the average rate stays exactly the
-  images-per-minute you asked for even when individual cuts move to find a sentence end.
+- **Your script is the source of truth, the audio only supplies timing.** Whisper hears
+  "Mira" where your script says "Mara"; the transcript is matched against your script and
+  discarded, so the misheard spelling never reaches an image prompt. Beat cuts are anchored
+  to a fixed grid, so the average rate stays exactly the images-per-minute you asked for even
+  when individual cuts move to land on a sentence end.
 - **Characters stay the same person.** Image models have no memory between calls, so a
   style bible is written once per video with a locked physical description for each recurring
   character, and every prompt that features them repeats that description verbatim.
@@ -50,12 +56,23 @@ cd tHEApp
 The first run stops and asks you to fill in `.env`:
 
 ```ini
-ANTHROPIC_API_KEY=sk-ant-...   # required — writes the image prompts
-OPENAI_API_KEY=sk-...          # required — Whisper transcription (this is what gives timings)
-FAL_KEY=...                    # pick ONE image provider
+OPENAI_API_KEY=sk-...          # transcription + image prompts — one key runs everything
+FAL_KEY=...                    # optional: cheaper/faster images than OpenAI
 ```
 
 Then run `./run.sh` again and open <http://127.0.0.1:8000>.
+
+### Who does what
+
+| Job | Who | Swap with |
+|---|---|---|
+| Your script | **You** | — |
+| Word-level timing | Whisper (`OPENAI_API_KEY`) | Supply an `.srt`/`.vtt` and this is skipped |
+| Writing the ~400 image prompts | OpenAI `gpt-4o` by default | `DIRECTOR_PROVIDER=anthropic`, or `OPENAI_TEXT_MODEL=gpt-4o-mini` |
+| Generating images | Your pick | `fal` / `replicate` / `openai`, per job in the UI |
+
+Prompt writing costs roughly **80k–150k tokens per 40-minute video** — on `gpt-4o` that is a
+few dollars; on `gpt-4o-mini`, cents.
 
 ### Which image provider
 
@@ -75,8 +92,9 @@ across batches so you are not billed for the style bible on every call.
 
 ## Using it
 
-1. Drop in the voiceover. Paste the script if you have it — it fixes names and spellings the
-   transcript would otherwise mangle.
+1. Paste or drop in your script, and drop in the voiceover. Both are required.
+   If your script is an `.srt` or `.vtt`, its own timings are used and transcription is
+   skipped — faster and free.
 2. Set images per minute (default 10), aspect ratio and a visual style.
 3. Hit **Start**. Watch the stages tick over.
 4. When the images land, click any shot to see its prompt, edit it, and regenerate just that
@@ -102,6 +120,7 @@ So even if you want to do the edit by hand, the shot list and stills are ready.
 | Transition | Crossfade | **Hard cut** renders ~2.5× faster with no quality loss from re-encoding. |
 | Aspect | 16:9 | `9:16` for Shorts, `1:1` for square. |
 | Auto-render | on | Off gives you a review step before rendering. |
+| Prompt writer | OpenAI | Switch to Claude per job if you prefer its prompts. |
 | Music bed | — | Loops to fit, ducked to −22 dB under the voice, limiter on the mix. |
 
 Environment tuning in `.env`: `IMAGE_CONCURRENCY` (default 6 — raise it if your provider
@@ -134,7 +153,8 @@ python tests/smoke_test.py
 
 Runs the real beat slicing, job orchestration and ffmpeg render against fake transcription,
 a fake director and a fake image provider. No API keys, no cost. It should print
-`ALL CHECKS PASSED (10/10)` and leave a rendered test video behind.
+`ALL CHECKS PASSED (12/12)` and leave a rendered test video behind. It also checks that
+script-only spellings survive alignment into the finished beats.
 
 ---
 
@@ -146,7 +166,9 @@ backend/
   jobs.py        job store + pipeline orchestration (background thread per job)
   transcribe.py  Whisper, with chunking for long files
   beats.py       timeline slicing — grid-anchored, sentence-snapping
-  director.py    Claude: style bible, character sheet, per-beat prompts
+  script_align.py  binds your script to the audio's timings; parses .srt/.vtt
+  director.py    style bible, character sheet, per-beat prompts
+  writers.py     swappable text backends (OpenAI / Anthropic)
   render.py      ffmpeg: Ken Burns clips, crossfade merge tree, audio mux
   media.py       ffmpeg discovery, duration probing, audio prep
   imagegen/
@@ -160,15 +182,20 @@ tests/
 ### Adding another image provider
 
 Subclass `ImageProvider` in `backend/imagegen/base.py`, implement `generate()`, and add it to
-the `PROVIDERS` dict. It shows up in the UI automatically once its key is set.
+the `PROVIDERS` dict. It shows up in the UI automatically once its key is set. The same
+pattern applies to text models — subclass `Writer` in `backend/writers.py`.
 
 ---
 
 ## Notes and limits
 
-- **Whisper is required for timing.** Without `OPENAI_API_KEY` there are no word timestamps,
-  and the whole point is timings that match the audio. A local `faster-whisper` path would
-  remove that dependency — not built yet.
+- **Whisper is required for timing unless you upload subtitles.** Without `OPENAI_API_KEY`
+  there are no word timestamps — but an `.srt`/`.vtt` script carries its own, so that path
+  needs no transcription at all. A local `faster-whisper` option would remove the dependency
+  entirely — not built yet.
+- **The "Script sync" stat tells you if the script and audio actually match.** A high
+  percentage means alignment worked. If it reads "no match", the script and voiceover are
+  different content and the app falls back to the transcript.
 - **Rendering 400 clips is CPU-heavy.** Segments render in parallel across your cores, then
   merge as a tree (groups of 10) so ffmpeg never sees a 400-input filtergraph.
 - **Prompts are written for advertiser-safe images** — violence is implied through aftermath

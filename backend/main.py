@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, jobs
 from .imagegen import available_providers
+from .writers import available_writers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -41,7 +42,10 @@ def get_config() -> dict:
         "providers": providers,
         "default_provider": config.default_image_provider(),
         "provider_cost": PROVIDER_COST,
+        "writers": available_writers(),
+        "default_writer": config.director_provider(),
         "services": config.provider_status(),
+        "openai_text_model": config.OPENAI_TEXT_MODEL,
         "style_presets": list(config.STYLE_PRESETS),
         "aspects": list(config.ASPECTS),
         "director_model": config.DIRECTOR_MODEL,
@@ -66,6 +70,7 @@ async def create_job(
     aspect: str = Form("16:9"),
     style_preset: str = Form("cinematic"),
     provider: str = Form(""),
+    writer: str = Form(""),
     notes: str = Form(""),
     transition: str = Form("crossfade"),
     transition_seconds: float = Form(0.5),
@@ -78,9 +83,17 @@ async def create_job(
     if not 1 <= images_per_minute <= 60:
         raise HTTPException(400, "images_per_minute must be between 1 and 60")
 
+    script_text = script or ""
+    if script_file is not None and script_file.filename:
+        raw = (await script_file.read()).decode("utf-8", errors="replace")
+        script_text = f"{script_text}\n{raw}".strip()
+    if not script_text.strip():
+        raise HTTPException(400, "A script is required -- paste it or upload a .txt/.srt file.")
+
     settings = {
         "images_per_minute": images_per_minute, "aspect": aspect,
-        "style_preset": style_preset, "provider": provider or None, "notes": notes,
+        "style_preset": style_preset, "provider": provider or None,
+        "writer": writer or None, "notes": notes,
         "transition": transition, "transition_seconds": transition_seconds,
         "fps": fps, "music_gain_db": music_gain_db, "auto_render": auto_render,
     }
@@ -89,10 +102,7 @@ async def create_job(
     audio_name = Path(voiceover.filename or "voiceover.mp3").name
     audio_path = _save_upload(voiceover, job.dir / audio_name)
 
-    script_text = script or ""
-    if script_file is not None and script_file.filename:
-        raw = (await script_file.read()).decode("utf-8", errors="replace")
-        script_text = f"{script_text}\n{raw}".strip()
+    (job.dir / "script.txt").write_text(script_text, encoding="utf-8")
 
     music_path = None
     if music is not None and music.filename:

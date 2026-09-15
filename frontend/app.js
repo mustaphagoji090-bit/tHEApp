@@ -54,10 +54,10 @@ async function boot() {
 
   const services = CONFIG.services || {};
   $('pills').innerHTML = [
-    ['Director (Claude)', services.anthropic],
+    ['OpenAI', services.openai],
+    ['Anthropic', services.anthropic],
     ['fal.ai', services.fal],
     ['Replicate', services.replicate],
-    ['OpenAI', services.openai],
   ].map(([name, on]) =>
     `<span class="pill ${on ? 'ok' : 'off'}">${name}: ${on ? 'ready' : 'no key'}</span>`
   ).join('');
@@ -69,14 +69,20 @@ async function boot() {
   $('style').innerHTML = CONFIG.style_presets
     .map((s) => `<option value="${s}">${s.replace(/_/g, ' ')}</option>`).join('');
 
+  const writers = CONFIG.writers || [];
+  $('writer').innerHTML = writers.length
+    ? writers.map((w) => `<option value="${w}"${w === CONFIG.default_writer ? ' selected' : ''}>${
+        w === 'openai' ? `OpenAI (${CONFIG.openai_text_model})` : 'Anthropic (Claude)'}</option>`).join('')
+    : '<option value="">no text model configured</option>';
+
   const providers = CONFIG.providers || [];
   $('provider').innerHTML = providers.length
     ? providers.map((p) => `<option value="${p}"${p === CONFIG.default_provider ? ' selected' : ''}>${p}</option>`).join('')
     : '<option value="">no provider configured</option>';
   if (!providers.length) {
     showNewError('No image provider has an API key yet. Add FAL_KEY (or REPLICATE_API_TOKEN / OPENAI_API_KEY) to your .env and restart.');
-  } else if (!services.anthropic) {
-    showNewError('ANTHROPIC_API_KEY is missing — it is what writes the image prompts. Add it to .env and restart.');
+  } else if (!writers.length) {
+    showNewError('No text model configured. Add OPENAI_API_KEY (or ANTHROPIC_API_KEY) to .env — it writes the image prompts, not your script.');
   }
 
   wireDrop('drop-vo', 'file-vo', 'voiceover', (f) => `${f.name} — ${humanDuration(files.voiceoverDuration)}`);
@@ -84,6 +90,7 @@ async function boot() {
   wireDrop('drop-script', 'file-script', 'script', (f) => f.name);
 
   ['ipm', 'provider'].forEach((id) => $(id).addEventListener('input', updateEstimate));
+  $('script').addEventListener('input', describeScript);
   $('btn-start').addEventListener('click', startJob);
   $('btn-back').addEventListener('click', () => { stopPolling(); showNew(); loadJobs(); });
   $('btn-cancel').addEventListener('click', cancelJob);
@@ -125,10 +132,20 @@ function wireDrop(dropId, inputId, key, label) {
     }
     if (key === 'script') {
       $('script').value = await file.text().catch(() => '');
+      describeScript();
     }
     drop.classList.add('filled');
     drop.innerHTML = `<strong>${esc(file.name)}</strong>${key === 'voiceover' ? humanDuration(files.voiceoverDuration) : 'ready'}`;
   }
+}
+
+function describeScript() {
+  const text = $('script').value;
+  const words = (text.match(/\S+/g) || []).length;
+  const timed = /\d{1,2}:\d{2}[.,]\d{1,3}\s*-->/.test(text);
+  $('script-stat').innerHTML = words
+    ? `${words.toLocaleString()} words${timed ? ' &middot; <strong>timed subtitle file &mdash; transcription will be skipped</strong>' : ''}`
+    : '';
 }
 
 function readDuration(file) {
@@ -162,7 +179,9 @@ function showNewError(message) {
 async function startJob() {
   $('new-error').classList.add('hidden');
   if (!files.voiceover) return showNewError('Pick a voiceover file first.');
+  if (!$('script').value.trim()) return showNewError('Paste or upload your script — it is required.');
   if (!$('provider').value) return showNewError('No image provider configured.');
+  if (!$('writer').value) return showNewError('No text model configured to write the image prompts.');
 
   const form = new FormData();
   form.append('voiceover', files.voiceover);
@@ -174,6 +193,7 @@ async function startJob() {
   form.append('aspect', $('aspect').value);
   form.append('style_preset', $('style').value);
   form.append('provider', $('provider').value);
+  form.append('writer', $('writer').value);
   form.append('transition', $('transition').value);
   form.append('transition_seconds', $('fade').value);
   form.append('auto_render', $('autorender').checked ? 'true' : 'false');
@@ -247,11 +267,17 @@ function renderJob(job, firstLoad) {
   $('bar').classList.toggle('done', job.status === 'done');
   $('job-msg').textContent = total ? `${job.message} — ${done} / ${total}` : (job.message || '');
 
+  const align = job.alignment;
+  const alignLabel = !align ? '—'
+    : align.source === 'script-timed' ? 'from subtitles'
+    : align.source === 'transcript' ? 'no match — used transcript'
+    : `${Math.round(align.ratio * 100)}% matched`;
   $('stats').innerHTML = [
     ['Length', humanDuration(job.audio && job.audio.duration)],
     ['Images', `${job.image_count} / ${job.beat_count}`],
     ['Failed', job.failed_count],
     ['Per minute', job.settings.images_per_minute],
+    ['Script sync', alignLabel],
   ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
 
   const errorBox = $('job-error');

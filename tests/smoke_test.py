@@ -22,12 +22,19 @@ TMP = Path(tempfile.mkdtemp(prefix="aistory-smoke-"))
 import os
 os.environ["STORAGE_DIR"] = str(TMP / "storage")
 
-from backend import director, jobs, transcribe  # noqa: E402
+import re  # noqa: E402
+
+from backend import jobs, transcribe, writers  # noqa: E402
 from backend.imagegen import base as imagegen_base  # noqa: E402
 from backend.media import audio_duration, ffmpeg_bin  # noqa: E402
 
 AUDIO_SECONDS = 60
 IMAGES_PER_MINUTE = 10
+# Deliberately spelled differently from what the fake transcript "hears", so the run proves
+# the uploaded script -- not the transcript -- is what reaches the prompts.
+SCRIPT = " ".join(
+    f"word{i}" + ("." if i % 12 == 11 else "") for i in range(150)
+).replace("word7 ", "Kaelen ").replace("word19 ", "Mara ")
 COLOURS = ["0x8e3b46", "0x2f6d5a", "0x35486e", "0x7a6238", "0x4a3660",
            "0x2c6b6b", "0x8a4a2f", "0x3b5d33", "0x5c3b52", "0x666f3a"]
 
@@ -57,7 +64,11 @@ class MockProvider(imagegen_base.ImageProvider):
 
 
 def fake_words(_audio, _work_dir, progress=None):
-    """A steady 2.5 words/second read with a sentence every 12 words."""
+    """A steady 2.5 words/second read with a sentence every 12 words.
+
+    Note it never produces "Mara" or "Kaelen" -- those exist only in the script, so finding
+    them in the finished beats proves alignment kept the script's wording.
+    """
     words, t, i = [], 0.0, 0
     while t < AUDIO_SECONDS:
         words.append(transcribe.Word(
@@ -67,23 +78,30 @@ def fake_words(_audio, _work_dir, progress=None):
     return words
 
 
-def fake_style(title, script, preset, notes=""):
-    return director.StyleBible(
-        art_direction="dark cinematic film still", palette="teal and amber",
-        lighting="low key", camera="35mm", mood="tense",
-        characters=[director.Character("Mara", "28, black bob, grey wool coat")],
-        settings=["an empty night diner"],
-    )
+class MockWriter(writers.Writer):
+    """Returns schema-shaped JSON so the real director code path runs unchanged."""
 
+    name = "mock"
+    calls = 0
 
-def fake_prompts(beats, style, progress=None):
-    if progress:
-        progress(len(beats), len(beats))
-    return [
-        {"prompt": f"Shot {b.index}: {b.text[:50]}. {style.suffix()}",
-         "shot": "medium", "motion": ["zoom_in", "pan_right", "zoom_out", "pan_left"][b.index % 4]}
-        for b in beats
-    ]
+    def complete_json(self, *, system, user, schema, max_tokens):
+        MockWriter.calls += 1
+        properties = schema.get("properties", {})
+        if "art_direction" in properties:
+            return {
+                "art_direction": "dark cinematic film still", "palette": "teal and amber",
+                "lighting": "low key", "camera": "35mm", "mood": "tense",
+                "characters": [{"name": "Mara", "look": "28, black bob, grey wool coat"}],
+                "settings": ["an empty night diner"],
+            }
+        indices = [int(m) for m in re.findall(r"^\[(\d+)\]", user, re.MULTILINE)]
+        return {"prompts": [
+            {"index": i,
+             "prompt": f"Shot {i}: Mara, 28, black bob, grey wool coat, in the diner. "
+                       f"Dark cinematic film still, teal and amber.",
+             "shot": ["establishing", "medium", "close", "detail"][i % 4]}
+            for i in indices
+        ]}
 
 
 def check(label: str, condition: bool, detail: str = "") -> bool:
@@ -96,10 +114,7 @@ def main() -> int:
 
     transcribe.transcribe = fake_words
     jobs.transcribe = fake_words
-    director.plan_style = fake_style
-    director.write_prompts = fake_prompts
-    jobs.director.plan_style = fake_style
-    jobs.director.write_prompts = fake_prompts
+    writers.WRITERS["mock"] = MockWriter
     imagegen_base.PROVIDERS["mock"] = MockProvider
 
     audio = make_audio(TMP / "vo.mp3")
@@ -107,7 +122,8 @@ def main() -> int:
 
     job = jobs.STORE.create("Smoke Test Story", {
         "images_per_minute": IMAGES_PER_MINUTE, "aspect": "16:9", "style_preset": "cinematic",
-        "provider": "mock", "notes": "", "transition": "crossfade", "transition_seconds": 0.5,
+        "provider": "mock", "writer": "mock", "notes": "",
+        "transition": "crossfade", "transition_seconds": 0.5,
         "fps": 24, "music_gain_db": -22, "auto_render": True,
     })
     # Mirror what the upload endpoint does.
@@ -115,10 +131,11 @@ def main() -> int:
     shutil.copy(audio, job.dir / audio.name)
 
     started = time.time()
-    jobs._run(job, job.dir / audio.name, "Mara walked into the diner. It was empty.", None)
+    jobs._run(job, job.dir / audio.name, SCRIPT, None)
     elapsed = time.time() - started
     print(f"\nPipeline finished in {elapsed:.1f}s with status '{job.status}'\n")
 
+    beat_text = " ".join(b.get("text", "") for b in job.beats)
     expected = round(AUDIO_SECONDS / 60 * IMAGES_PER_MINUTE)
     video = job.dir / (job.video or "final.mp4")
     results = [
@@ -126,6 +143,11 @@ def main() -> int:
         check(f"beat count is ~{expected}", abs(len(job.beats) - expected) <= 1,
               f"got {len(job.beats)}"),
         check("every beat has a prompt", all(b.get("prompt") for b in job.beats)),
+        check("script wording survived into the beats", "Mara" in beat_text and "Kaelen" in beat_text,
+              "script spellings beat the transcript's"),
+        check("alignment reported", bool(job.alignment),
+              f"{(job.alignment or {}).get('source')} "
+              f"{round((job.alignment or {}).get('ratio', 0) * 100)}% matched"),
         check("every image generated", all(b.get("file") for b in job.beats),
               f"{sum(1 for b in job.beats if b.get('file'))}/{len(job.beats)}"),
         check("beats tile the timeline with no gaps",

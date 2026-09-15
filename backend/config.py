@@ -26,6 +26,9 @@ _load_dotenv()
 STORAGE_DIR = Path(os.getenv("STORAGE_DIR") or BASE_DIR / "storage")
 FRONTEND_DIR = BASE_DIR / "frontend"
 
+# Who writes the image prompts. "openai" or "anthropic"; auto-detected from keys if unset.
+DIRECTOR_PROVIDER = os.getenv("DIRECTOR_PROVIDER", "")
+OPENAI_TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-4o")
 DIRECTOR_MODEL = os.getenv("DIRECTOR_MODEL", "claude-opus-5")
 IMAGE_CONCURRENCY = int(os.getenv("IMAGE_CONCURRENCY", "6"))
 
@@ -67,6 +70,17 @@ def provider_status() -> dict[str, bool]:
         "replicate": bool(os.getenv("REPLICATE_API_TOKEN")),
         "openai": bool(os.getenv("OPENAI_API_KEY")),
     }
+
+
+def director_provider() -> str | None:
+    """Which text model writes the prompts. Prefers OpenAI so one key can run everything."""
+    if DIRECTOR_PROVIDER:
+        return DIRECTOR_PROVIDER
+    status = provider_status()
+    for name in ("openai", "anthropic"):
+        if status[name]:
+            return name
+    return None
 
 
 def default_image_provider() -> str | None:

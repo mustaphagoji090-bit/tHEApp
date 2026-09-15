@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import config, director, render
+from . import config, director, render, script_align
 from .beats import build_beats
 from .imagegen import generate_all, generate_one, get_provider
 from .media import audio_duration
@@ -36,6 +36,7 @@ class Job:
     message: str = ""
     progress: dict[str, int] = field(default_factory=lambda: {"done": 0, "total": 0})
     audio: dict[str, Any] = field(default_factory=dict)
+    alignment: dict[str, Any] | None = None
     style: dict[str, Any] | None = None
     beats: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
@@ -65,7 +66,8 @@ class Job:
         data = {
             "id": self.id, "title": self.title, "settings": self.settings,
             "status": self.status, "stage": self.stage, "message": self.message,
-            "progress": self.progress, "audio": self.audio, "style": self.style,
+            "progress": self.progress, "audio": self.audio,
+            "alignment": self.alignment, "style": self.style,
             "error": self.error, "video": self.video,
             "created_at": self.created_at, "updated_at": self.updated_at,
             "beat_count": len(self.beats),
@@ -126,8 +128,8 @@ class JobStore:
             except (OSError, json.JSONDecodeError):
                 continue
             job = Job(id=data["id"], title=data.get("title", ""), settings=data.get("settings", {}))
-            for key in ("status", "stage", "message", "progress", "audio", "style",
-                        "beats", "error", "video", "created_at", "updated_at"):
+            for key in ("status", "stage", "message", "progress", "audio", "alignment",
+                        "style", "beats", "error", "video", "created_at", "updated_at"):
                 if key in data:
                     setattr(job, key, data[key])
             # A job cannot still be running after a restart.
@@ -188,9 +190,27 @@ def _run(job: Job, audio_path: Path, script_text: str, music_path: Path | None) 
         job.audio = {"filename": audio_path.name, "duration": round(duration, 2)}
         job.persist(force=True)
 
-        # 2. Transcribe ------------------------------------------------------
-        job.set_stage("transcribing", "Transcribing voiceover for exact timings")
-        words = transcribe(audio_path, job.work_dir, progress=lambda m: job.tick(0, 0, m))
+        # 2. Timing ----------------------------------------------------------
+        script_text = script_text.strip()
+        if not script_text:
+            raise RuntimeError("No script was supplied. Upload or paste the script to start.")
+
+        cues = script_align.parse_cues(script_text)
+        if cues:
+            # A subtitle file carries its own timings -- no transcription needed.
+            job.set_stage("transcribing", "Reading timings from your subtitle file")
+            words = script_align.cues_to_words(cues)
+            job.alignment = {"source": "script-timed", "matched": len(words),
+                             "total": len(words), "ratio": 1.0}
+        else:
+            job.set_stage("transcribing", "Transcribing voiceover for exact timings")
+            heard = transcribe(audio_path, job.work_dir, progress=lambda m: job.tick(0, 0, m))
+            _abort_if_cancelled(job)
+            job.set_stage("planning", "Matching your script to the audio")
+            aligned = script_align.align_script(script_text, heard, duration)
+            words = aligned.words
+            job.alignment = aligned.to_dict()
+        job.persist(force=True)
         _abort_if_cancelled(job)
 
         # 3. Beats -----------------------------------------------------------
@@ -202,11 +222,11 @@ def _run(job: Job, audio_path: Path, script_text: str, music_path: Path | None) 
 
         # 4. Style bible -----------------------------------------------------
         job.set_stage("directing", "Writing the style bible")
-        script_for_director = script_text.strip() or " ".join(w.text for w in words)
         style = director.plan_style(
-            job.title, script_for_director,
+            job.title, script_text,
             settings.get("style_preset", "cinematic"),
             settings.get("notes", ""),
+            writer_name=settings.get("writer"),
         )
         job.style = style.to_dict()
         job.persist(force=True)
@@ -215,7 +235,8 @@ def _run(job: Job, audio_path: Path, script_text: str, music_path: Path | None) 
         # 5. Prompts ---------------------------------------------------------
         job.set_stage("directing", "Writing image prompts", total=len(beats))
         written = director.write_prompts(
-            beats, style, progress=lambda done, total: job.tick(done, total)
+            beats, style, progress=lambda done, total: job.tick(done, total),
+            writer_name=settings.get("writer"),
         )
         for beat, item in zip(job.beats, written):
             beat.update(item)

@@ -1,4 +1,4 @@
-"""Turns script beats into image-generation prompts, using Claude as the art director.
+"""Turns script beats into image-generation prompts.
 
 Two passes. First a 'style bible' is written once for the whole video -- art direction plus a
 locked physical description for every recurring character. Then each beat gets a standalone
@@ -10,15 +10,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
 
-import anthropic
-
 from . import config
 from .beats import Beat
+from .writers import RefusalError, WriterError, get_writer
 
 log = logging.getLogger(__name__)
 
@@ -117,41 +115,15 @@ PROMPTS_SCHEMA = {
 }
 
 
-def _client() -> anthropic.Anthropic:
-    if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
-        raise DirectorError("ANTHROPIC_API_KEY is not set -- it writes the image prompts.")
-    return anthropic.Anthropic()
-
-
-def _complete_json(client: anthropic.Anthropic, *, system, messages, schema, max_tokens: int) -> dict:
-    """One JSON-constrained call, with server-side refusal fallback when the SDK supports it."""
-    kwargs = dict(
-        model=config.DIRECTOR_MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        messages=messages,
-        output_config={"format": {"type": "json_schema", "schema": schema}},
-    )
+def _json(writer, *, system: str, user: str, schema: dict, max_tokens: int) -> dict:
     try:
-        response = client.beta.messages.create(
-            betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs
-        )
-    except (TypeError, AttributeError, anthropic.BadRequestError):
-        # Older SDK, or a model/endpoint without the fallback beta -- proceed without it.
-        response = client.messages.create(**kwargs)
-
-    if getattr(response, "stop_reason", None) == "refusal":
-        detail = getattr(response, "stop_details", None)
+        return writer.complete_json(system=system, user=user, schema=schema, max_tokens=max_tokens)
+    except RefusalError as exc:
         raise DirectorError(
-            "The director declined to write prompts for this script"
-            + (f" ({getattr(detail, 'category', None)})" if detail else "")
-            + ". Try softening the most graphic lines of the script."
-        )
-
-    text = next((b.text for b in response.content if b.type == "text"), None)
-    if not text:
-        raise DirectorError("The director returned no text.")
-    return json.loads(text)
+            f"The prompt writer declined this script ({exc}). Try softening the most graphic lines."
+        ) from exc
+    except WriterError as exc:
+        raise DirectorError(str(exc)) from exc
 
 
 STYLE_SYSTEM = """You are the art director for a faceless AI-narrated story video on YouTube.
@@ -197,8 +169,9 @@ through aftermath, shadow, reaction and negative space instead of depicting it.
 Return one entry per beat you are given, keeping the same index numbers."""
 
 
-def plan_style(title: str, script: str, style_preset: str, extra_notes: str = "") -> StyleBible:
-    client = _client()
+def plan_style(title: str, script: str, style_preset: str, extra_notes: str = "",
+               writer_name: str | None = None) -> StyleBible:
+    writer = get_writer(writer_name)
     preset_hint = config.STYLE_PRESETS.get(style_preset, style_preset or "")
     script_excerpt = script[:24000]
 
@@ -208,13 +181,7 @@ def plan_style(title: str, script: str, style_preset: str, extra_notes: str = ""
         + (f"EXTRA DIRECTION FROM THE CREATOR: {extra_notes}\n" if extra_notes else "")
         + f"\nSCRIPT:\n{script_excerpt}"
     )
-    data = _complete_json(
-        client,
-        system=[{"type": "text", "text": STYLE_SYSTEM, "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": user}],
-        schema=STYLE_SCHEMA,
-        max_tokens=8000,
-    )
+    data = _json(writer, system=STYLE_SYSTEM, user=user, schema=STYLE_SCHEMA, max_tokens=8000)
     return StyleBible(
         art_direction=data["art_direction"], palette=data["palette"], lighting=data["lighting"],
         camera=data["camera"], mood=data["mood"],
@@ -229,17 +196,13 @@ def _fallback_prompt(beat: Beat, style: StyleBible) -> str:
     return f"A cinematic depiction of: {text[:240]}. {style.suffix()}. No text or watermarks."
 
 
-def _write_batch(client, system_blocks, batch: list[Beat], context: str) -> dict[int, dict]:
+def _write_batch(writer, system_text: str, batch: list[Beat], context: str) -> dict[int, dict]:
     listing = "\n".join(f"[{b.index}] ({b.duration:.1f}s) {b.text or '(no narration)'}" for b in batch)
     user = (
         (f"PRECEDING NARRATION (for continuity, do not illustrate):\n{context}\n\n" if context else "")
         + f"BEATS TO ILLUSTRATE:\n{listing}"
     )
-    data = _complete_json(
-        client, system=system_blocks,
-        messages=[{"role": "user", "content": user}],
-        schema=PROMPTS_SCHEMA, max_tokens=16000,
-    )
+    data = _json(writer, system=system_text, user=user, schema=PROMPTS_SCHEMA, max_tokens=16000)
     return {int(item["index"]): item for item in data.get("prompts", [])}
 
 
@@ -247,9 +210,10 @@ def write_prompts(
     beats: list[Beat],
     style: StyleBible,
     progress: Callable[[int, int], None] | None = None,
+    writer_name: str | None = None,
 ) -> list[dict]:
     """Return one {prompt, shot, motion} per beat, in beat order."""
-    client = _client()
+    writer = get_writer(writer_name)
     system_text = PROMPT_SYSTEM.format(
         style=json.dumps(
             {"art_direction": style.art_direction, "palette": style.palette,
@@ -258,8 +222,6 @@ def write_prompts(
         cast=style.cast_sheet(),
         settings="\n".join(f"- {s}" for s in style.settings) or "(none)",
     )
-    # The system block is identical across every batch, so cache it rather than re-billing it.
-    system_blocks = [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
 
     batches = [beats[i:i + BEATS_PER_CALL] for i in range(0, len(beats), BEATS_PER_CALL)]
     done = 0
@@ -269,7 +231,7 @@ def write_prompts(
         first = batch[0].index
         context = " ".join(b.text for b in beats[max(0, first - 2):first])
         try:
-            return _write_batch(client, system_blocks, batch, context)
+            return _write_batch(writer, system_text, batch, context)
         except DirectorError:
             raise
         except Exception as exc:

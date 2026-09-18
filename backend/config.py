@@ -53,6 +53,19 @@ STYLE_PRESETS = {
     "photoreal": "photorealistic editorial photograph, natural light, 50mm lens, true-to-life skin texture and materials, subtle grain",
     "biblical": "epic biblical oil painting in the style of the old masters, golden divine light breaking through cloud, dramatic baroque composition, aged canvas texture",
     "horror": "unsettling horror cinematography, harsh single-source light, heavy grain, sickly green and cold blue grade, oppressive negative space",
+    "declassified": "found-footage documentary still, mix of black-and-white archival photography, grainy 1970s government file photos and rough pencil witness sketches, desaturated sepia-and-desert palette, heavy film grain and dust, dark vignette, mysterious investigative mood",
+}
+
+# Post-processing look baked onto every rendered frame via ffmpeg, independent of the image
+# model's own output -- this is what makes mixed-source stills (photos, sketches, renders)
+# read as one unified "found footage" film instead of a slideshow of clip art.
+POST_EFFECTS = {
+    "none": "",
+    "film_grain": "noise=alls=10:allf=t+u",
+    "vignette": "vignette=PI/5",
+    "archival": "eq=saturation=0.6:contrast=1.08:brightness=-0.02,curves=preset=vintage,"
+                "vignette=PI/4,noise=alls=14:allf=t+u",
+    "bw_found_footage": "hue=s=0,eq=contrast=1.15,vignette=PI/4,noise=alls=18:allf=t+u",
 }
 
 DEFAULT_NEGATIVE = (

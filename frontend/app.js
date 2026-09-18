@@ -11,6 +11,14 @@ const STAGES = [
   ['done', 'Done'],
 ];
 
+const EFFECT_LABELS = {
+  none: 'None (clean)',
+  film_grain: 'Film grain',
+  vignette: 'Vignette',
+  archival: 'Archival sepia + grain',
+  bw_found_footage: 'B&W found footage',
+};
+
 let CONFIG = null;
 let currentJob = null;
 let pollTimer = null;
@@ -68,6 +76,9 @@ async function boot() {
 
   $('style').innerHTML = CONFIG.style_presets
     .map((s) => `<option value="${s}">${s.replace(/_/g, ' ')}</option>`).join('');
+
+  $('effect').innerHTML = (CONFIG.effects || ['none'])
+    .map((e) => `<option value="${e}">${EFFECT_LABELS[e] || e.replace(/_/g, ' ')}</option>`).join('');
 
   const writers = CONFIG.writers || [];
   $('writer').innerHTML = writers.length
@@ -194,6 +205,7 @@ async function startJob() {
   form.append('style_preset', $('style').value);
   form.append('provider', $('provider').value);
   form.append('writer', $('writer').value);
+  form.append('effect', $('effect').value);
   form.append('transition', $('transition').value);
   form.append('transition_seconds', $('fade').value);
   form.append('auto_render', $('autorender').checked ? 'true' : 'false');

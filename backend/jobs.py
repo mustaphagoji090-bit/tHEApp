@@ -329,6 +329,7 @@ def _render(job: Job, audio_path: Path, music_path: Path | None, width: int, hei
         transition_seconds=float(settings.get("transition_seconds", 0.5)),
         music=music_path if music_path and music_path.exists() else None,
         music_gain_db=float(settings.get("music_gain_db", -22)),
+        effect=settings.get("effect", "none"),
         progress=lambda stage, done, total: job.tick(done, total, stage),
         should_stop=lambda: job.cancelled,
     )

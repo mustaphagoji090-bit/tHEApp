@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from . import config
 from .media import MediaError, ffmpeg_bin, run
 
 log = logging.getLogger(__name__)
@@ -57,17 +58,21 @@ def _ken_burns(motion: str, frames: int, width: int, height: int, fps: int) -> s
 
 
 def render_clip(clip: Clip, out_path: Path, *, width: int, height: int, fps: int,
-                crf: int = 18) -> Path:
+                crf: int = 18, effect: str = "none") -> Path:
     """One still -> one moving clip, letterbox-free (cover-crop to the target frame)."""
     frames = max(2, int(round(clip.duration * fps)))
     big_w, big_h = width * OVERSAMPLE, height * OVERSAMPLE
-    chain = ",".join([
+    steps = [
         f"scale={big_w}:{big_h}:force_original_aspect_ratio=increase",
         f"crop={big_w}:{big_h}",
         "setsar=1",
         _ken_burns(clip.motion, frames, width, height, fps),
-        "format=yuv420p",
-    ])
+    ]
+    effect_filter = config.POST_EFFECTS.get(effect, "")
+    if effect_filter:
+        steps.append(effect_filter)
+    steps.append("format=yuv420p")
+    chain = ",".join(steps)
     run([
         ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(clip.image),
@@ -193,6 +198,7 @@ def render_video(
     transition_seconds: float = 0.5,
     music: Path | None = None,
     music_gain_db: float = -22.0,
+    effect: str = "none",
     progress: Callable[[str, int, int], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> Path:
@@ -224,7 +230,7 @@ def render_video(
             raise MediaError("Render cancelled")
         target = seg_dir / f"{index:05d}.mp4"
         render_clip(Clip(clip.image, duration, clip.motion), target,
-                    width=width, height=height, fps=fps)
+                    width=width, height=height, fps=fps, effect=effect)
         return index, target
 
     workers = max(1, min(os.cpu_count() or 2, 8))

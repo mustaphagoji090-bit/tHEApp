@@ -47,6 +47,7 @@ def get_config() -> dict:
         "services": config.provider_status(),
         "openai_text_model": config.OPENAI_TEXT_MODEL,
         "style_presets": list(config.STYLE_PRESETS),
+        "effects": list(config.POST_EFFECTS),
         "aspects": list(config.ASPECTS),
         "director_model": config.DIRECTOR_MODEL,
     }
@@ -74,12 +75,15 @@ async def create_job(
     notes: str = Form(""),
     transition: str = Form("crossfade"),
     transition_seconds: float = Form(0.5),
+    effect: str = Form("none"),
     fps: int = Form(30),
     music_gain_db: float = Form(-22),
     auto_render: bool = Form(True),
 ) -> dict:
     if aspect not in config.ASPECTS:
         raise HTTPException(400, f"Unknown aspect '{aspect}'")
+    if effect not in config.POST_EFFECTS:
+        raise HTTPException(400, f"Unknown effect '{effect}'")
     if not 1 <= images_per_minute <= 60:
         raise HTTPException(400, "images_per_minute must be between 1 and 60")
 
@@ -95,6 +99,7 @@ async def create_job(
         "style_preset": style_preset, "provider": provider or None,
         "writer": writer or None, "notes": notes,
         "transition": transition, "transition_seconds": transition_seconds,
+        "effect": effect,
         "fps": fps, "music_gain_db": music_gain_db, "auto_render": auto_render,
     }
     job = jobs.STORE.create(title.strip(), settings)

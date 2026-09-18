@@ -132,6 +132,11 @@ You will be given the title and the narration script. Produce a style bible that
 the video's images will follow, so the finished video looks like one film rather than a pile of \
 unrelated pictures.
 
+The script may be written in any language. Always respond in ENGLISH regardless -- \
+art_direction, palette, lighting, camera and mood are fed straight to an image model, which \
+follows English far more reliably than other languages. Character `look` and `settings` stay \
+in English too; only a name itself may keep its original spelling.
+
 Rules:
 - art_direction, palette, lighting, camera: short comma-separated phrase fragments suitable for \
 appending to an image-generation prompt. No sentences, no preamble.
@@ -152,6 +157,10 @@ CAST -- copy these descriptions VERBATIM whenever the character appears
 
 RECURRING SETTINGS
 {settings}
+
+The narration below may be in any language. Write every prompt in ENGLISH regardless -- the \
+image model follows English far more reliably. Translate the content of each beat, don't quote \
+or transliterate it; only a proper name keeps its original spelling.
 
 Rules for every prompt you write:
 1. Self-contained. The image model sees nothing but this one prompt -- no memory of other beats. \

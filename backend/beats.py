@@ -6,8 +6,10 @@ from dataclasses import dataclass, asdict
 
 from .transcribe import Word
 
-SENTENCE_END = re.compile(r"[.!?…]['\"”’)]*$")
-CLAUSE_END = re.compile(r"[,;:—-]['\"”’)]*$")
+# Latin ".!?" plus the fullwidth/CJK, Arabic and Devanagari terminal marks other scripts use,
+# so sentence-snapping works the same for a script in Japanese, Arabic or Hindi as in English.
+SENTENCE_END = re.compile(r"[.!?…。!?؟।]['\"”’)]*$")
+CLAUSE_END = re.compile(r"[,;:—\-、，،]['\"”’)]*$")
 
 # A cut may land this far either side of its grid slot while hunting for a clean break.
 WINDOW = 0.45

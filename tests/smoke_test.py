@@ -91,7 +91,7 @@ class MockWriter(writers.Writer):
             return {
                 "art_direction": "dark cinematic film still", "palette": "teal and amber",
                 "lighting": "low key", "camera": "35mm", "mood": "tense",
-                "characters": [{"name": "Mara", "look": "28, black bob, grey wool coat"}],
+                "subjects": [{"name": "Mara", "look": "28, black bob, grey wool coat"}],
                 "settings": ["an empty night diner"],
             }
         indices = [int(m) for m in re.findall(r"^\[(\d+)\]", user, re.MULTILINE)]

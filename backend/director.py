@@ -1,10 +1,11 @@
 """Turns script beats into image-generation prompts.
 
 Two passes. First a 'style bible' is written once for the whole video -- art direction plus a
-locked physical description for every recurring character. Then each beat gets a standalone
-prompt that restates those locked descriptions verbatim. Image models have no memory between
-calls, so repeating the description is the only thing keeping a character's face consistent
-across 400 images.
+locked description for every recurring subject: a named person, but just as often a creature,
+craft, or object the story keeps coming back to (an alien species, a UFO design, a facility).
+Then each beat gets a standalone prompt that restates those locked descriptions verbatim. Image
+models have no memory between calls, so repeating the description is the only thing keeping a
+subject's design consistent across 400 images.
 """
 from __future__ import annotations
 
@@ -30,7 +31,8 @@ MOTION_CYCLE = ["zoom_in", "pan_right", "zoom_out", "pan_left"]
 
 
 @dataclass
-class Character:
+class Subject:
+    """A person, creature, craft, or object the story returns to more than once."""
     name: str
     look: str
 
@@ -42,7 +44,7 @@ class StyleBible:
     lighting: str
     camera: str
     mood: str
-    characters: list[Character] = field(default_factory=list)
+    subjects: list[Subject] = field(default_factory=list)
     settings: list[str] = field(default_factory=list)
 
     def suffix(self) -> str:
@@ -50,15 +52,15 @@ class StyleBible:
         return ", ".join(p.strip() for p in parts if p and p.strip())
 
     def cast_sheet(self) -> str:
-        if not self.characters:
-            return "(no recurring characters)"
-        return "\n".join(f"- {c.name}: {c.look}" for c in self.characters)
+        if not self.subjects:
+            return "(no recurring subjects)"
+        return "\n".join(f"- {s.name}: {s.look}" for s in self.subjects)
 
     def to_dict(self) -> dict:
         return {
             "art_direction": self.art_direction, "palette": self.palette,
             "lighting": self.lighting, "camera": self.camera, "mood": self.mood,
-            "characters": [{"name": c.name, "look": c.look} for c in self.characters],
+            "subjects": [{"name": s.name, "look": s.look} for s in self.subjects],
             "settings": self.settings,
         }
 
@@ -75,7 +77,7 @@ STYLE_SCHEMA = {
         "lighting": {"type": "string"},
         "camera": {"type": "string"},
         "mood": {"type": "string"},
-        "characters": {
+        "subjects": {
             "type": "array",
             "items": {
                 "type": "object",
@@ -86,7 +88,7 @@ STYLE_SCHEMA = {
         },
         "settings": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["art_direction", "palette", "lighting", "camera", "mood", "characters", "settings"],
+    "required": ["art_direction", "palette", "lighting", "camera", "mood", "subjects", "settings"],
     "additionalProperties": False,
 }
 
@@ -134,17 +136,22 @@ unrelated pictures.
 
 The script may be written in any language. Always respond in ENGLISH regardless -- \
 art_direction, palette, lighting, camera and mood are fed straight to an image model, which \
-follows English far more reliably than other languages. Character `look` and `settings` stay \
-in English too; only a name itself may keep its original spelling.
+follows English far more reliably than other languages. Every subject's `look` and every entry \
+in `settings` stay in English too; only a proper name itself may keep its original spelling.
 
 Rules:
 - art_direction, palette, lighting, camera: short comma-separated phrase fragments suitable for \
 appending to an image-generation prompt. No sentences, no preamble.
-- characters: every person the narration returns to. `look` must be a LOCKED physical description \
--- age, build, hair, face, clothing, distinguishing features -- concrete enough that repeating it \
-verbatim yields the same person every time. Never reference the plot in `look`. 6-25 words.
-- Do not invent characters who never appear. If the story is narrated with no recurring people, \
-return an empty characters list.
+- subjects: everything the narration returns to more than once and whose design must stay \
+identical every time it appears -- this is NOT limited to named people. It includes a recurring \
+species or creature (e.g. a Gray alien), a specific craft or vehicle design (e.g. a triangular \
+UFO), a distinctive object, a masked or hooded figure, an animal, or a named human. `look` must \
+be a LOCKED visual description -- for a person: age, build, hair, face, clothing, distinguishing \
+features; for a creature or craft: exact proportions, color, texture, and any distinguishing \
+markings -- concrete enough that repeating it verbatim yields the identical subject every time. \
+Never reference the plot in `look`. 6-25 words.
+- Do not invent subjects who never appear. If the story never returns to the same person, \
+creature, craft or object twice, return an empty subjects list.
 - settings: the recurring locations, one short visual phrase each."""
 
 PROMPT_SYSTEM = """You write prompts for a text-to-image model, one per beat of a narrated story video.
@@ -152,7 +159,7 @@ PROMPT_SYSTEM = """You write prompts for a text-to-image model, one per beat of 
 STYLE BIBLE (every image obeys this)
 {style}
 
-CAST -- copy these descriptions VERBATIM whenever the character appears
+RECURRING SUBJECTS -- copy these descriptions VERBATIM whenever the subject appears
 {cast}
 
 RECURRING SETTINGS
@@ -164,7 +171,8 @@ or transliterate it; only a proper name keeps its original spelling.
 
 Rules for every prompt you write:
 1. Self-contained. The image model sees nothing but this one prompt -- no memory of other beats. \
-If a cast member appears, restate their locked description word for word.
+If a recurring subject appears (a locked alien design, UFO, creature, object or named person), \
+restate its locked description word for word so it looks identical to every other appearance.
 2. Describe ONE frozen moment that a viewer could photograph: subject, action, setting, framing. \
 Never describe narration, voiceover, story structure, or the passage of time.
 3. No text, letters, numbers, logos, captions or speech bubbles in the image.
@@ -194,7 +202,7 @@ def plan_style(title: str, script: str, style_preset: str, extra_notes: str = ""
     return StyleBible(
         art_direction=data["art_direction"], palette=data["palette"], lighting=data["lighting"],
         camera=data["camera"], mood=data["mood"],
-        characters=[Character(name=c["name"], look=c["look"]) for c in data.get("characters", [])],
+        subjects=[Subject(name=s["name"], look=s["look"]) for s in data.get("subjects", [])],
         settings=list(data.get("settings", [])),
     )
 

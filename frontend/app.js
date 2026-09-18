@@ -19,6 +19,13 @@ const EFFECT_LABELS = {
   bw_found_footage: 'B&W found footage',
 };
 
+const KEY_FIELDS = [
+  { key: 'OPENAI_API_KEY', label: 'OpenAI API key', hint: 'transcription + prompts (default) + images' },
+  { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API key', hint: 'optional — write prompts with Claude instead' },
+  { key: 'FAL_KEY', label: 'fal.ai key', hint: 'optional — cheapest & fastest images' },
+  { key: 'REPLICATE_API_TOKEN', label: 'Replicate API token', hint: 'optional — alternative image provider' },
+];
+
 let CONFIG = null;
 let currentJob = null;
 let pollTimer = null;
@@ -56,8 +63,56 @@ function humanDuration(seconds) {
   return m ? `${m}m ${s}s` : `${s}s`;
 }
 
-// ---------------------------------------------------------------- bootstrap
-async function boot() {
+// ---------------------------------------------------------------- API keys
+async function loadKeys() {
+  const data = await api('/api/keys').catch(() => ({ status: {}, masked: {} }));
+  $('keys-grid').innerHTML = KEY_FIELDS.map((f) => {
+    const isSet = (data.status || {})[f.key];
+    const hint = isSet ? `set, ends ${(data.masked || {})[f.key] || '...'}` : 'not set';
+    return `
+      <div>
+        <label for="field-${f.key}">${f.label} <span style="font-weight:400">&mdash; ${esc(f.hint)} &middot; <em>${hint}</em></span></label>
+        <div class="row">
+          <input type="password" id="field-${f.key}" autocomplete="off" style="flex:1"
+                 placeholder="${isSet ? 'Paste a new key to replace it' : 'Paste your key'}">
+          ${isSet ? `<button class="ghost small" data-clear-key="${f.key}">Clear</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+  $('keys-grid').querySelectorAll('[data-clear-key]').forEach((btn) => {
+    btn.addEventListener('click', () => clearKey(btn.dataset.clearKey));
+  });
+}
+
+async function saveKeys() {
+  const payload = {};
+  KEY_FIELDS.forEach((f) => { payload[f.key] = $(`field-${f.key}`).value.trim(); });
+  if (!Object.values(payload).some(Boolean)) return;
+
+  $('btn-save-keys').disabled = true;
+  $('keys-status').textContent = 'Saving...';
+  try {
+    await api('/api/keys', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    $('keys-status').textContent = 'Saved.';
+    await loadKeys();
+    await refreshConfig();
+  } catch (err) {
+    $('keys-status').textContent = err.message;
+  } finally {
+    $('btn-save-keys').disabled = false;
+  }
+}
+
+async function clearKey(name) {
+  await api(`/api/keys/${encodeURIComponent(name)}`, { method: 'DELETE' }).catch(() => {});
+  await loadKeys();
+  await refreshConfig();
+}
+
+// ---------------------------------------------------------------- config
+async function refreshConfig() {
   CONFIG = await api('/api/config');
 
   const services = CONFIG.services || {};
@@ -90,11 +145,21 @@ async function boot() {
   $('provider').innerHTML = providers.length
     ? providers.map((p) => `<option value="${p}"${p === CONFIG.default_provider ? ' selected' : ''}>${p}</option>`).join('')
     : '<option value="">no provider configured</option>';
+
+  $('new-error').classList.add('hidden');
   if (!providers.length) {
-    showNewError('No image provider has an API key yet. Add FAL_KEY (or REPLICATE_API_TOKEN / OPENAI_API_KEY) to your .env and restart.');
+    showNewError('No image provider has a key yet. Paste a fal.ai, Replicate or OpenAI key above.');
   } else if (!writers.length) {
-    showNewError('No text model configured. Add OPENAI_API_KEY (or ANTHROPIC_API_KEY) to .env — it writes the image prompts, not your script.');
+    showNewError('No text model configured. Paste an OpenAI or Anthropic key above — it writes the image prompts, not your script.');
   }
+}
+
+// ---------------------------------------------------------------- bootstrap
+async function boot() {
+  await loadKeys();
+  await refreshConfig();
+
+  $('btn-save-keys').addEventListener('click', saveKeys);
 
   wireDrop('drop-vo', 'file-vo', 'voiceover', (f) => `${f.name} — ${humanDuration(files.voiceoverDuration)}`);
   wireDrop('drop-music', 'file-music', 'music', (f) => f.name);

@@ -77,11 +77,13 @@ DEFAULT_NEGATIVE = (
 
 def provider_status() -> dict[str, bool]:
     """Which services currently have credentials, for the UI to reflect."""
+    from . import keys_store  # local import: keys_store itself imports this module
+
     return {
-        "anthropic": bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")),
-        "fal": bool(os.getenv("FAL_KEY")),
-        "replicate": bool(os.getenv("REPLICATE_API_TOKEN")),
-        "openai": bool(os.getenv("OPENAI_API_KEY")),
+        "anthropic": bool(keys_store.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")),
+        "fal": bool(keys_store.get("FAL_KEY")),
+        "replicate": bool(keys_store.get("REPLICATE_API_TOKEN")),
+        "openai": bool(keys_store.get("OPENAI_API_KEY")),
     }
 
 

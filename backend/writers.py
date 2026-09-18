@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 
 import httpx
 
-from . import config
+from . import config, keys_store
 
 log = logging.getLogger(__name__)
 
@@ -38,9 +38,9 @@ class OpenAIWriter(Writer):
     name = "openai"
 
     def complete_json(self, *, system, user, schema, max_tokens) -> dict:
-        key = os.getenv("OPENAI_API_KEY")
+        key = keys_store.get("OPENAI_API_KEY")
         if not key:
-            raise WriterError("OPENAI_API_KEY is not set -- it writes the image prompts.")
+            raise WriterError("No OpenAI API key set -- it writes the image prompts. Paste one in Settings.")
 
         body = {
             "model": config.OPENAI_TEXT_MODEL,
@@ -95,9 +95,11 @@ class AnthropicWriter(Writer):
     def complete_json(self, *, system, user, schema, max_tokens) -> dict:
         import anthropic
 
-        if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
-            raise WriterError("ANTHROPIC_API_KEY is not set.")
-        client = anthropic.Anthropic()
+        key = keys_store.get("ANTHROPIC_API_KEY")
+        auth_token = os.getenv("ANTHROPIC_AUTH_TOKEN")
+        if not key and not auth_token:
+            raise WriterError("No Anthropic API key set. Paste one in Settings.")
+        client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
 
         kwargs = dict(
             model=config.DIRECTOR_MODEL,
@@ -136,7 +138,7 @@ def get_writer(name: str | None = None) -> Writer:
     name = name or config.director_provider()
     if not name:
         raise WriterError(
-            "No prompt writer is configured. Add OPENAI_API_KEY (or ANTHROPIC_API_KEY) to .env."
+            "No prompt writer is configured. Paste an OpenAI or Anthropic key in Settings."
         )
     if name not in WRITERS:
         raise WriterError(f"Unknown prompt writer '{name}'. Choose one of: {', '.join(WRITERS)}")

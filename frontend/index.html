@@ -20,6 +20,16 @@
   <!-- ============ NEW JOB ============ -->
   <section id="view-new">
     <div class="panel">
+      <h2>API keys</h2>
+      <p class="hint">Paste your keys here instead of editing <code>.env</code> by hand. Stored locally in <code>storage/keys.json</code> on this machine only &mdash; never sent anywhere except the provider you use them with.</p>
+      <div class="grid two" id="keys-grid"></div>
+      <div class="row" style="margin-top:14px">
+        <button id="btn-save-keys">Save keys</button>
+        <span class="hint" id="keys-status" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="panel">
       <h2>New video</h2>
       <p class="hint">Upload your script and your voiceover. Your script is the source of truth for the wording &mdash; the audio is only used to work out <em>when</em> each line is spoken.</p>
 

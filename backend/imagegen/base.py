@@ -1,13 +1,12 @@
 """Provider-agnostic image generation. Add a backend by subclassing ImageProvider."""
 from __future__ import annotations
 
-import os
 import time
 from abc import ABC, abstractmethod
 
 import httpx
 
-from .. import config
+from .. import config, keys_store
 
 
 class ImageGenError(RuntimeError):
@@ -63,9 +62,9 @@ class FalProvider(ImageProvider):
     supports_negative = False
 
     def generate(self, prompt, *, negative, width, height, seed=None) -> bytes:
-        key = os.getenv("FAL_KEY")
+        key = keys_store.get("FAL_KEY")
         if not key:
-            raise ImageGenError("FAL_KEY is not set.")
+            raise ImageGenError("No fal.ai key set. Paste one in Settings.")
         width, height = _resolve_size(width, height)
         payload = {
             "prompt": prompt,
@@ -92,9 +91,9 @@ class ReplicateProvider(ImageProvider):
     supports_negative = False
 
     def generate(self, prompt, *, negative, width, height, seed=None) -> bytes:
-        token = os.getenv("REPLICATE_API_TOKEN")
+        token = keys_store.get("REPLICATE_API_TOKEN")
         if not token:
-            raise ImageGenError("REPLICATE_API_TOKEN is not set.")
+            raise ImageGenError("No Replicate API token set. Paste one in Settings.")
         width, height = _resolve_size(width, height)
         payload = {"input": {
             "prompt": prompt,
@@ -146,9 +145,9 @@ class OpenAIProvider(ImageProvider):
     def generate(self, prompt, *, negative, width, height, seed=None) -> bytes:
         import base64
 
-        key = os.getenv("OPENAI_API_KEY")
+        key = keys_store.get("OPENAI_API_KEY")
         if not key:
-            raise ImageGenError("OPENAI_API_KEY is not set.")
+            raise ImageGenError("No OpenAI API key set. Paste one in Settings.")
         data = self._post(
             "https://api.openai.com/v1/images/generations",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
@@ -193,8 +192,7 @@ def get_provider(name: str | None) -> ImageProvider:
     name = name or config.default_image_provider()
     if not name:
         raise ImageGenError(
-            "No image provider is configured. Add FAL_KEY, REPLICATE_API_TOKEN or "
-            "OPENAI_API_KEY to your .env file."
+            "No image provider is configured. Paste a fal.ai, Replicate or OpenAI key in Settings."
         )
     if name not in PROVIDERS:
         raise ImageGenError(f"Unknown image provider '{name}'. Choose one of: {', '.join(PROVIDERS)}")

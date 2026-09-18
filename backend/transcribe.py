@@ -1,14 +1,13 @@
 """Voiceover -> word-level timestamps. These timings are what the whole timeline hangs off."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 import httpx
 
-from . import config, media
+from . import config, keys_store, media
 
 # The Whisper endpoint rejects uploads over 25 MB; stay comfortably under it.
 MAX_UPLOAD_BYTES = 24 * 1024 * 1024
@@ -66,11 +65,11 @@ def transcribe(
     progress: Callable[[str], None] | None = None,
 ) -> list[Word]:
     """Transcribe with word timings, splitting long files to stay under the upload limit."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = keys_store.get("OPENAI_API_KEY")
     if not api_key:
         raise TranscriptionError(
-            "Transcription needs OPENAI_API_KEY (Whisper). Add it to .env -- it is what gives "
-            "every image its exact in/out timecode."
+            "Transcription needs an OpenAI API key (Whisper). Paste one in Settings -- it is "
+            "what gives every image its exact in/out timecode."
         )
 
     note = progress or (lambda _msg: None)

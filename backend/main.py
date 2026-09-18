@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, jobs
+from . import config, jobs, keys_store
 from .imagegen import available_providers
 from .writers import available_writers
 
@@ -51,6 +51,25 @@ def get_config() -> dict:
         "aspects": list(config.ASPECTS),
         "director_model": config.DIRECTOR_MODEL,
     }
+
+
+@app.get("/api/keys")
+def get_keys() -> dict:
+    return {"status": keys_store.status(), "masked": keys_store.masked()}
+
+
+@app.post("/api/keys")
+async def save_keys(payload: dict) -> dict:
+    keys_store.save({name: payload.get(name, "") for name in keys_store.KNOWN_KEYS})
+    return {"saved": True, "status": keys_store.status()}
+
+
+@app.delete("/api/keys/{name}")
+def delete_key(name: str) -> dict:
+    if name not in keys_store.KNOWN_KEYS:
+        raise HTTPException(404, f"Unknown key '{name}'")
+    keys_store.clear(name)
+    return {"cleared": True, "status": keys_store.status()}
 
 
 def _save_upload(upload: UploadFile, destination: Path) -> Path:
